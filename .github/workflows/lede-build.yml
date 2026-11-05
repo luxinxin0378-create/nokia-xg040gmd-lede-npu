@@ -52,8 +52,11 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/coolsnowwolf/lede.git lede
           cd lede
+          # Add QModem's official feed so the modem UI/core are built from source.
+          echo 'src-git qmodem https://github.com/FUjr/QModem.git;main' >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          ./scripts/feeds install -a -p qmodem
 
       - name: Configure AN7581 Nokia XG-040G-MD and requested packages
         run: |
@@ -88,8 +91,9 @@ jobs:
           # CPU frequency management; PLL overclocking intentionally remains disabled
           CONFIG_PACKAGE_luci-app-cpufreq=y
 
-          # QModem package placeholder: it will only be included if supplied by a configured feed
-          CONFIG_PACKAGE_luci-app-qmodem=y
+          # QModem: include core and recommended LuCI Next frontend from the explicit feed
+          CONFIG_PACKAGE_qmodem=y
+          CONFIG_PACKAGE_luci-app-qmodem-next=y
 
           # USB modem/network and serial drivers
           CONFIG_PACKAGE_kmod-usb-net=y
@@ -105,7 +109,10 @@ jobs:
           make defconfig
           cp .config ../lede-config.txt
           echo "Requested package symbols after defconfig:"
-          grep -E 'CONFIG_PACKAGE_(luci-app-(openclash|passwall2|adguardhome|sysmonitor|cpufreq|qmodem)|kmod-usb-net-qmi-wwan|kmod-usb-net-cdc-mbim)=' .config || true
+          grep -E 'CONFIG_PACKAGE_(qmodem|luci-app-qmodem-next|luci-app-(openclash|passwall2|adguardhome|sysmonitor|cpufreq)|kmod-usb-net-qmi-wwan|kmod-usb-net-cdc-mbim)=' .config
+          # Fail the job if the QModem core or LuCI frontend was not selected.
+          grep -qx 'CONFIG_PACKAGE_qmodem=y' .config
+          grep -qx 'CONFIG_PACKAGE_luci-app-qmodem-next=y' .config
 
       - name: Build firmware
         run: |
