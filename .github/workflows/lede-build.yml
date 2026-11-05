@@ -1,0 +1,98 @@
+name: LEDE Nokia XG-040G-MD NPU Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "Image target"
+        required: true
+        type: choice
+        options:
+          - nokia_xg-040g-md-ubi
+      extra_packages:
+        description: "Optional package set (basic first build)"
+        required: true
+        type: choice
+        options:
+          - base
+          - router-addons
+        default: base
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/lede-build.yml"
+      - "configs/**"
+      - "scripts/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lede-xg040gmd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout build configuration
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib \
+            gettext git libncurses-dev libssl-dev python3-setuptools rsync unzip zlib1g-dev \
+            file wget curl time ccache
+          sudo timedatectl set-timezone Asia/Shanghai
+
+      - name: Clone LEDE source
+        run: |
+          git clone --depth=1 https://github.com/coolsnowwolf/lede.git lede
+          cd lede
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure AN7581 Nokia XG-040G-MD
+        run: |
+          cd lede
+          make defconfig
+          ./scripts/config \
+            -e TARGET_airoha \
+            -e TARGET_airoha_an7581 \
+            -e TARGET_DEVICE_airoha_an7581_nokia_xg-040g-md-ubi
+          ./scripts/config -e PACKAGE_luci
+          ./scripts/config -e PACKAGE_luci-ssl
+          ./scripts/config -e PACKAGE_luci-app-opkg
+          ./scripts/config -e PACKAGE_luci-app-statistics
+          ./scripts/config -e PACKAGE_luci-app-ttyd
+          ./scripts/config -e PACKAGE_luci-app-wol
+          ./scripts/config -e PACKAGE_luci-app-ddns
+          ./scripts/config -e PACKAGE_luci-app-filebrowser
+          ./scripts/config -e PACKAGE_kmod-usb-net
+          ./scripts/config -e PACKAGE_kmod-usb-net-cdc-ether
+          ./scripts/config -e PACKAGE_kmod-usb-net-rndis
+          ./scripts/config -e PACKAGE_kmod-usb-net-qmi-wwan
+          ./scripts/config -e PACKAGE_kmod-usb-serial
+          ./scripts/config -e PACKAGE_kmod-usb-serial-option
+          ./scripts/config -e PACKAGE_kmod-usb-serial-wwan
+          make defconfig
+          cp .config ../lede-config.txt
+
+      - name: Build firmware
+        run: |
+          cd lede
+          make download -j8
+          make -j$(nproc) || make -j1 V=s
+
+      - name: Upload firmware artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nokia-XG-040G-MD-LEDE-${{ github.run_number }}
+          path: |
+            lede/bin/targets/airoha/an7581/
+            lede-config.txt
+          if-no-files-found: warn
+          retention-days: 14
