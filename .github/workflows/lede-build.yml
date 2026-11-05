@@ -67,6 +67,9 @@ jobs:
           # LuCI and administration
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-ssl=y
+          # Keep exactly one libustream TLS backend to avoid duplicate libustream-ssl.so
+          CONFIG_PACKAGE_libustream-openssl20201210=y
+          # CONFIG_PACKAGE_libustream-mbedtls20201210 is not set
           CONFIG_PACKAGE_luci-app-opkg=y
           CONFIG_PACKAGE_luci-app-filebrowser=y
           CONFIG_PACKAGE_luci-app-ttyd=y
