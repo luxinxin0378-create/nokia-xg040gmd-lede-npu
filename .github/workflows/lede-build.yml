@@ -58,25 +58,26 @@ jobs:
         run: |
           cd lede
           make defconfig
-          ./scripts/config \
-            -e TARGET_airoha \
-            -e TARGET_airoha_an7581 \
-            -e TARGET_DEVICE_airoha_an7581_nokia_xg-040g-md-ubi
-          ./scripts/config -e PACKAGE_luci
-          ./scripts/config -e PACKAGE_luci-ssl
-          ./scripts/config -e PACKAGE_luci-app-opkg
-          ./scripts/config -e PACKAGE_luci-app-statistics
-          ./scripts/config -e PACKAGE_luci-app-ttyd
-          ./scripts/config -e PACKAGE_luci-app-wol
-          ./scripts/config -e PACKAGE_luci-app-ddns
-          ./scripts/config -e PACKAGE_luci-app-filebrowser
-          ./scripts/config -e PACKAGE_kmod-usb-net
-          ./scripts/config -e PACKAGE_kmod-usb-net-cdc-ether
-          ./scripts/config -e PACKAGE_kmod-usb-net-rndis
-          ./scripts/config -e PACKAGE_kmod-usb-net-qmi-wwan
-          ./scripts/config -e PACKAGE_kmod-usb-serial
-          ./scripts/config -e PACKAGE_kmod-usb-serial-option
-          ./scripts/config -e PACKAGE_kmod-usb-serial-wwan
+          cat >> .config <<'EOF'
+          CONFIG_TARGET_airoha=y
+          CONFIG_TARGET_airoha_an7581=y
+          CONFIG_TARGET_DEVICE_airoha_an7581_nokia_xg-040g-md-ubi=y
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-ssl=y
+          CONFIG_PACKAGE_luci-app-opkg=y
+          CONFIG_PACKAGE_luci-app-statistics=y
+          CONFIG_PACKAGE_luci-app-ttyd=y
+          CONFIG_PACKAGE_luci-app-wol=y
+          CONFIG_PACKAGE_luci-app-ddns=y
+          CONFIG_PACKAGE_luci-app-filebrowser=y
+          CONFIG_PACKAGE_kmod-usb-net=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+          CONFIG_PACKAGE_kmod-usb-net-rndis=y
+          CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
+          CONFIG_PACKAGE_kmod-usb-serial=y
+          CONFIG_PACKAGE_kmod-usb-serial-option=y
+          CONFIG_PACKAGE_kmod-usb-serial-wwan=y
+          EOF
           make defconfig
           cp .config ../lede-config.txt
 
