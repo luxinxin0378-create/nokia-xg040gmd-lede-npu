@@ -10,13 +10,13 @@ on:
         options:
           - nokia_xg-040g-md-ubi
       extra_packages:
-        description: "Optional package set (basic first build)"
+        description: "Optional package set"
         required: true
         type: choice
         options:
           - base
           - router-addons
-        default: base
+        default: router-addons
   push:
     branches: [main]
     paths:
@@ -27,9 +27,10 @@ on:
 permissions:
   contents: read
 
+# A new build on main supersedes and cancels the previous in-progress build.
 concurrency:
   group: lede-xg040gmd-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -54,7 +55,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Configure AN7581 Nokia XG-040G-MD
+      - name: Configure AN7581 Nokia XG-040G-MD and requested packages
         run: |
           cd lede
           make defconfig
@@ -62,24 +63,46 @@ jobs:
           CONFIG_TARGET_airoha=y
           CONFIG_TARGET_airoha_an7581=y
           CONFIG_TARGET_DEVICE_airoha_an7581_nokia_xg-040g-md-ubi=y
+
+          # LuCI and administration
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-ssl=y
           CONFIG_PACKAGE_luci-app-opkg=y
-          CONFIG_PACKAGE_luci-app-statistics=y
+          CONFIG_PACKAGE_luci-app-filebrowser=y
           CONFIG_PACKAGE_luci-app-ttyd=y
           CONFIG_PACKAGE_luci-app-wol=y
           CONFIG_PACKAGE_luci-app-ddns=y
-          CONFIG_PACKAGE_luci-app-filebrowser=y
+
+          # Monitoring and traffic statistics
+          CONFIG_PACKAGE_luci-app-statistics=y
+          CONFIG_PACKAGE_luci-app-sysmonitor=y
+
+          # Proxy and DNS applications (require their package feeds to provide these symbols)
+          CONFIG_PACKAGE_luci-app-openclash=y
+          CONFIG_PACKAGE_luci-app-passwall2=y
+          CONFIG_PACKAGE_luci-app-adguardhome=y
+
+          # CPU frequency management; PLL overclocking intentionally remains disabled
+          CONFIG_PACKAGE_luci-app-cpufreq=y
+
+          # QModem package placeholder: it will only be included if supplied by a configured feed
+          CONFIG_PACKAGE_luci-app-qmodem=y
+
+          # USB modem/network and serial drivers
           CONFIG_PACKAGE_kmod-usb-net=y
           CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
           CONFIG_PACKAGE_kmod-usb-net-rndis=y
           CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
+          CONFIG_PACKAGE_kmod-usb-wdm=y
           CONFIG_PACKAGE_kmod-usb-serial=y
           CONFIG_PACKAGE_kmod-usb-serial-option=y
           CONFIG_PACKAGE_kmod-usb-serial-wwan=y
           EOF
           make defconfig
           cp .config ../lede-config.txt
+          echo "Requested package symbols after defconfig:"
+          grep -E 'CONFIG_PACKAGE_(luci-app-(openclash|passwall2|adguardhome|sysmonitor|cpufreq|qmodem)|kmod-usb-net-qmi-wwan|kmod-usb-net-cdc-mbim)=' .config || true
 
       - name: Build firmware
         run: |
