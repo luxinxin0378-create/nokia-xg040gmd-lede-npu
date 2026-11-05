@@ -57,6 +57,16 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           ./scripts/feeds install -a -p qmodem
+          # Work around QModem Next package dependency cycle seen in some LuCI builds.
+          # The Next UI is the selected frontend; do not make its package conditional on
+          # the legacy luci-app-qmodem package, nor create a self-dependency.
+          if [ -f package/feeds/qmodem/QModem/luci/luci-app-qmodem-next/Makefile ]; then
+            sed -i 's/@!PACKAGE_luci-app-qmodem //g; s/+luci-app-qmodem-next/luci-app-qmodem-next/g' \
+              package/feeds/qmodem/QModem/luci/luci-app-qmodem-next/Makefile
+          elif [ -f package/feeds/qmodem/luci-app-qmodem-next/Makefile ]; then
+            sed -i 's/@!PACKAGE_luci-app-qmodem //g; s/+luci-app-qmodem-next/luci-app-qmodem-next/g' \
+              package/feeds/qmodem/luci-app-qmodem-next/Makefile
+          fi
 
       - name: Configure AN7581 Nokia XG-040G-MD and requested packages
         run: |
