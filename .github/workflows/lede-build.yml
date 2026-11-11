@@ -68,6 +68,117 @@ jobs:
               package/feeds/qmodem/luci-app-qmodem-next/Makefile
           fi
 
+      - name: Patch Quectel QMI WWAN timer API for Linux 6.15+
+        run: |
+          set -eux
+          cd lede
+          DRIVER=package/wwan/driver/quectel_QMI_WWAN/src/qmi_wwan_q.c
+          test -f "$DRIVER"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("package/wwan/driver/quectel_QMI_WWAN/src/qmi_wwan_q.c")
+          source = path.read_text()
+          include = "#include <linux/hrtimer.h>"
+          if include not in source:
+              anchor = "#include <linux/time.h>\n"
+              if source.count(anchor) != 1:
+                  raise SystemExit("Could not find unique linux/time.h include")
+              source = source.replace(anchor, anchor + include + "\n", 1)
+
+          old = (
+              "\thrtimer_init(&priv->agg_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);\n"
+              "\tpriv->agg_hrtimer.function = rmnet_usb_tx_agg_timer_cb;"
+          )
+          new = (
+              "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)\n"
+              "\thrtimer_setup(&priv->agg_hrtimer, rmnet_usb_tx_agg_timer_cb, CLOCK_MONOTONIC, HRTIMER_MODE_REL);\n"
+              "#else\n"
+              "\thrtimer_init(&priv->agg_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);\n"
+              "\tpriv->agg_hrtimer.function = rmnet_usb_tx_agg_timer_cb;\n"
+              "#endif"
+          )
+          if old in source:
+              source = source.replace(old, new, 1)
+          elif new not in source:
+              raise SystemExit("Expected Quectel hrtimer_init call was not found")
+          path.write_text(source)
+          PY
+          grep -q '^#include <linux/hrtimer.h>        run: |
+          cd lede
+          make defconfig
+          cat >> .config <<'EOF'
+          CONFIG_TARGET_airoha=y
+          CONFIG_TARGET_airoha_an7581=y
+          CONFIG_TARGET_DEVICE_airoha_an7581_nokia_xg-040g-md-ubi=y
+
+          # LuCI and administration
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-ssl=y
+          # Keep exactly one libustream TLS backend to avoid duplicate libustream-ssl.so
+          CONFIG_PACKAGE_libustream-openssl20201210=y
+          # CONFIG_PACKAGE_libustream-mbedtls20201210 is not set
+          CONFIG_PACKAGE_luci-app-opkg=y
+          CONFIG_PACKAGE_luci-app-filebrowser=y
+          CONFIG_PACKAGE_luci-app-ttyd=y
+          CONFIG_PACKAGE_luci-app-wol=y
+          CONFIG_PACKAGE_luci-app-ddns=y
+
+          # Monitoring and traffic statistics
+          CONFIG_PACKAGE_luci-app-statistics=y
+          CONFIG_PACKAGE_luci-app-sysmonitor=y
+
+          # Proxy and DNS applications (require their package feeds to provide these symbols)
+          CONFIG_PACKAGE_luci-app-openclash=y
+          CONFIG_PACKAGE_luci-app-passwall2=y
+          CONFIG_PACKAGE_luci-app-adguardhome=y
+
+          # CPU frequency management; PLL overclocking intentionally remains disabled
+          CONFIG_PACKAGE_luci-app-cpufreq=y
+
+          # QModem: include core and recommended LuCI Next frontend from the explicit feed
+          CONFIG_PACKAGE_qmodem=y
+          CONFIG_PACKAGE_luci-app-qmodem-next=y
+
+          # USB modem/network and serial drivers
+          CONFIG_PACKAGE_kmod-usb-net=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+          CONFIG_PACKAGE_kmod-usb-net-rndis=y
+          CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
+          CONFIG_PACKAGE_kmod-usb-wdm=y
+          CONFIG_PACKAGE_kmod-usb-serial=y
+          CONFIG_PACKAGE_kmod-usb-serial-option=y
+          CONFIG_PACKAGE_kmod-usb-serial-wwan=y
+          EOF
+          make defconfig
+          cp .config ../lede-config.txt
+          echo "Requested package symbols after defconfig:"
+          grep -E 'CONFIG_PACKAGE_(qmodem|luci-app-qmodem-next|luci-app-(openclash|passwall2|adguardhome|sysmonitor|cpufreq)|kmod-usb-net-qmi-wwan|kmod-usb-net-cdc-mbim)=' .config
+          # Fail the job if the QModem core or LuCI frontend was not selected.
+          grep -qx 'CONFIG_PACKAGE_qmodem=y' .config
+          grep -qx 'CONFIG_PACKAGE_luci-app-qmodem-next=y' .config
+
+      - name: Build firmware
+        run: |
+          cd lede
+          make download -j8
+          make -j$(nproc) || make -j1 V=s
+
+      - name: Upload firmware artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nokia-XG-040G-MD-LEDE-${{ github.run_number }}
+          path: |
+            lede/bin/targets/airoha/an7581/
+            lede-config.txt
+          if-no-files-found: warn
+          retention-days: 14
+ "$DRIVER"
+          grep -q 'hrtimer_setup(&priv->agg_hrtimer' "$DRIVER"
+          grep -n -E 'hrtimer_setup|hrtimer_init' "$DRIVER"
+
       - name: Configure AN7581 Nokia XG-040G-MD and requested packages
         run: |
           cd lede
