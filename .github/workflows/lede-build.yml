@@ -111,6 +111,7 @@ jobs:
           PY
           grep -Fq "#include <linux/hrtimer.h>" "$DRIVER"
           grep -Fq "hrtimer_setup(&priv->agg_hrtimer" "$DRIVER"
+          grep -Fq "KERNEL_VERSION(6, 15, 0)" "$DRIVER"
           grep -n -E "hrtimer_setup|hrtimer_init" "$DRIVER"
 
       - name: Configure AN7581 Nokia XG-040G-MD and requested packages
