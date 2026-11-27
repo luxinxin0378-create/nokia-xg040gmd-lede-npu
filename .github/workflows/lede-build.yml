@@ -114,6 +114,27 @@ jobs:
           grep -Fq "hrtimer_setup(&priv->agg_hrtimer" "$DRIVER"
           grep -Fq "KERNEL_VERSION(6, 15, 0)" "$DRIVER"
           grep -n -E "hrtimer_setup|hrtimer_init" "$DRIVER"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path("package/wwan/driver/quectel_QMI_WWAN/src/qmi_wwan_q.c").read_text()
+          marker = "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)"
+          if source.count(marker) != 1:
+              raise SystemExit("Expected exactly one Linux 6.15+ hrtimer compatibility block")
+          start = source.index(marker)
+          end = source.index("#endif", start)
+          block = source[start:end]
+          required = (
+              "hrtimer_setup(&priv->agg_hrtimer",
+              "hrtimer_init(&priv->agg_hrtimer",
+              "priv->agg_hrtimer.function = rmnet_usb_tx_agg_timer_cb;",
+          )
+          missing = [item for item in required if item not in block]
+          if missing or block.count("#else") != 1:
+              raise SystemExit(f"Incomplete modern/legacy hrtimer paths: missing={missing}")
+          print("Verified Linux >= 6.15 hrtimer_setup() and legacy hrtimer_init() fallback")
+          PY
+          git diff --check
 
       - name: Configure AN7581 Nokia XG-040G-MD and requested packages
         run: |
