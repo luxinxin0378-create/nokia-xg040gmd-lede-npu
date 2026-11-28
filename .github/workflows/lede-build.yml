@@ -73,7 +73,7 @@ jobs:
               package/feeds/qmodem/luci-app-qmodem-next/Makefile
           fi
 
-      - name: Patch Quectel QMI WWAN timer API for Linux 6.15+
+      - name: Normalize Quectel QMI WWAN timer API for Linux 6.17+
         run: |
           set -eux
           cd lede
@@ -84,45 +84,89 @@ jobs:
 
           path = Path("package/wwan/driver/quectel_QMI_WWAN/src/qmi_wwan_q.c")
           source = path.read_text()
-          include = "#include <linux/hrtimer.h>"
-          if include not in source:
-              anchor = "#include <linux/time.h>\n"
-              if source.count(anchor) != 1:
-                  raise SystemExit("Could not find unique linux/time.h include")
-              source = source.replace(anchor, anchor + include + "\n", 1)
 
-          old = (
-              "\thrtimer_init(&priv->agg_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);\n"
-              "\tpriv->agg_hrtimer.function = rmnet_usb_tx_agg_timer_cb;"
+          missing_includes = [
+              include for include in (
+                  "#include <linux/version.h>",
+                  "#include <linux/hrtimer.h>",
+              )
+              if include not in source
+          ]
+          if missing_includes:
+              anchor = "#include <linux/module.h>\n"
+              if source.count(anchor) != 1:
+                  raise SystemExit("Could not find unique linux/module.h include")
+              source = source.replace(anchor, anchor + "".join(item + "\n" for item in missing_includes), 1)
+
+          markers = (
+              "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)",
+              "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)",
           )
-          new = (
-              "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)\n"
-              "\thrtimer_setup(&priv->agg_hrtimer, rmnet_usb_tx_agg_timer_cb, CLOCK_MONOTONIC, HRTIMER_MODE_REL);\n"
+          found = [marker for marker in markers if marker in source]
+          if len(found) > 1:
+              raise SystemExit("Multiple competing hrtimer compatibility blocks were found")
+
+          new_block = (
+              "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)\n"
+              "\thrtimer_setup(&priv->agg_hrtimer, rmnet_usb_tx_agg_timer_cb,\n"
+              "\t              CLOCK_MONOTONIC, HRTIMER_MODE_REL);\n"
               "#else\n"
               "\thrtimer_init(&priv->agg_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);\n"
               "\tpriv->agg_hrtimer.function = rmnet_usb_tx_agg_timer_cb;\n"
               "#endif"
           )
-          if old in source:
-              source = source.replace(old, new, 1)
-          elif new not in source:
-              raise SystemExit("Expected Quectel hrtimer_init call was not found")
+
+          if found:
+              marker = found[0]
+              if source.count(marker) != 1:
+                  raise SystemExit("Expected exactly one existing hrtimer compatibility marker")
+              block_start = source.index(marker)
+              else_pos = source.find("#else", block_start)
+              if else_pos < 0:
+                  raise SystemExit("The hrtimer compatibility block has no legacy #else branch")
+              end = source.find("#endif", else_pos)
+              if end < 0:
+                  raise SystemExit("The hrtimer compatibility block has no closing #endif")
+              block = source[block_start:end + len("#endif")]
+              required = (
+                  "hrtimer_setup(&priv->agg_hrtimer",
+                  "hrtimer_init(&priv->agg_hrtimer",
+                  "priv->agg_hrtimer.function = rmnet_usb_tx_agg_timer_cb;",
+              )
+              missing = [item for item in required if item not in block]
+              if missing or block.count("#else") != 1:
+                  raise SystemExit(f"Incomplete existing hrtimer compatibility block: missing={missing}")
+              source = source[:block_start] + new_block + source[end + len("#endif"):]
+          else:
+              old = (
+                  "\thrtimer_init(&priv->agg_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);\n"
+                  "\tpriv->agg_hrtimer.function = rmnet_usb_tx_agg_timer_cb;"
+              )
+              if source.count(old) != 1:
+                  raise SystemExit("Could not find exactly one legacy Quectel hrtimer_init pair")
+              source = source.replace(old, new_block, 1)
+
           path.write_text(source)
           PY
           grep -Fq "#include <linux/hrtimer.h>" "$DRIVER"
           grep -Fq "#include <linux/version.h>" "$DRIVER"
           grep -Fq "hrtimer_setup(&priv->agg_hrtimer" "$DRIVER"
-          grep -Fq "KERNEL_VERSION(6, 15, 0)" "$DRIVER"
+          grep -Fq "KERNEL_VERSION(6, 17, 0)" "$DRIVER"
           grep -n -E "hrtimer_setup|hrtimer_init" "$DRIVER"
           python3 - <<'PY'
           from pathlib import Path
 
           source = Path("package/wwan/driver/quectel_QMI_WWAN/src/qmi_wwan_q.c").read_text()
-          marker = "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)"
+          marker = "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)"
           if source.count(marker) != 1:
-              raise SystemExit("Expected exactly one Linux 6.15+ hrtimer compatibility block")
+              raise SystemExit("Expected exactly one Linux 6.17+ hrtimer compatibility block")
           start = source.index(marker)
-          end = source.index("#endif", start)
+          else_pos = source.find("#else", start)
+          if else_pos < 0:
+              raise SystemExit("Missing legacy hrtimer #else branch")
+          end = source.find("#endif", else_pos)
+          if end < 0:
+              raise SystemExit("Missing hrtimer #endif")
           block = source[start:end]
           required = (
               "hrtimer_setup(&priv->agg_hrtimer",
@@ -132,7 +176,7 @@ jobs:
           missing = [item for item in required if item not in block]
           if missing or block.count("#else") != 1:
               raise SystemExit(f"Incomplete modern/legacy hrtimer paths: missing={missing}")
-          print("Verified Linux >= 6.15 hrtimer_setup() and legacy hrtimer_init() fallback")
+          print("Verified Linux >= 6.17 hrtimer_setup() and legacy hrtimer_init() fallback")
           PY
           git diff --check
 
